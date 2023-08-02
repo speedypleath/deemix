@@ -48,15 +48,15 @@ type UrlResponse struct {
 	} `json:"data"`
 }
 
+type Response interface {
+	PingResponse | UserDataResponse | ListDataResponse | UrlResponse
+}
+
 type Session struct {
 	Sid       string
 	ApiToken  string
 	UserToken string
 	License   string
-}
-
-type Response interface {
-	PingResponse | UserDataResponse | ListDataResponse | UrlResponse
 }
 
 func httpRequest[T Response](method string, url string, sid string, data []byte) *T {
@@ -115,7 +115,7 @@ func GetListData(tracks []string, session *Session) []string {
 	}).([]string)
 }
 
-func GetStreamUrl(tracks []string, session Session) string {
+func GetStreamUrl(tracks []string, session *Session) string {
 	body := fmt.Sprintf(`{
 		"license_token": "%s",
 		"media": [{

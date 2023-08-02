@@ -12,6 +12,6 @@ func main() {
 	deezer.Ping(&session)
 	deezer.UserData(&session)
 	trackTokens := deezer.GetListData([]string{"355777961"}, &session)
-	r := deezer.GetStreamUrl(trackTokens, session)
+	r := deezer.GetStreamUrl(trackTokens, &session)
 	log.Println(r)
 }
