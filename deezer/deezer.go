@@ -8,6 +8,7 @@ import (
 	"net/http"
 
 	log "github.com/sirupsen/logrus"
+	"github.com/thoas/go-funk"
 )
 
 type PingResponse struct {
@@ -29,14 +30,47 @@ type UserDataResponse struct {
 }
 
 type ListDataResponse struct {
+	Results struct {
+		Data []struct {
+			Token string `json:"TRACK_TOKEN"`
+		} `json:"data"`
+	} `json:"results"`
+}
+
+type UrlResponse struct {
+	Data []struct {
+		Media []struct {
+			Format  string `json:"format"`
+			Sources []struct {
+				Url string `json:"url"`
+			} `json:"sources"`
+		} `json:"media"`
+	} `json:"data"`
+}
+
+type Session struct {
+	Sid       string
+	ApiToken  string
+	UserToken string
+	License   string
 }
 
 type Response interface {
-	PingResponse | UserDataResponse | ListDataResponse
+	PingResponse | UserDataResponse | ListDataResponse | UrlResponse
 }
 
-func GetRequest[T Response](url string) *T {
-	resp, err := http.Get(url)
+func GetRequest[T Response](url string, sid string) *T {
+	req, err := http.NewRequest("GET", url, nil)
+	if err != nil {
+		log.Error(err)
+		return nil
+	}
+
+	header := fmt.Sprintf("sid=%s", sid)
+	req.Header.Set("Cookie", header)
+
+	client := &http.Client{}
+	resp, err := client.Do(req)
 	if err != nil {
 		log.Error(err)
 		return nil
@@ -57,14 +91,14 @@ func GetRequest[T Response](url string) *T {
 }
 
 func PostRequest[T Response](url string, sid string, data []byte) *T {
-	log.Info(url)
 	req, err := http.NewRequest("POST", url, bytes.NewBuffer(data))
 	if err != nil {
 		log.Error(err)
 		return nil
 	}
 
-	req.Header.Set("Cookie", fmt.Sprintf("sid=%s", sid))
+	header := fmt.Sprintf("sid=%s", sid)
+	req.Header.Set("Cookie", header)
 
 	client := &http.Client{}
 	resp, err := client.Do(req)
@@ -80,26 +114,49 @@ func PostRequest[T Response](url string, sid string, data []byte) *T {
 		return nil
 	}
 
-	log.Info(string(body))
-
 	r := new(T)
-
-	json.Unmarshal(body, r)
+	err = json.Unmarshal(body, r)
+	if err != nil {
+		log.Error("Error unmarshalling json")
+		return nil
+	}
 
 	return r
 }
 
-func Ping() *PingResponse {
-	return GetRequest[PingResponse]("https://www.deezer.com/ajax/gw-light.php?method=deezer.ping&api_version=1.0&api_token")
+func Ping(session *Session) {
+	r := GetRequest[PingResponse]("https://www.deezer.com/ajax/gw-light.php?method=deezer.ping&api_version=1.0&api_token", "")
+	session.Sid = r.Results.Session
 }
 
-func UserData() *UserDataResponse {
-	return GetRequest[UserDataResponse]("https://www.deezer.com/ajax/gw-light.php?method=deezer.getUserData&api_version=1.0&api_token")
+func UserData(session *Session) {
+	r := GetRequest[UserDataResponse]("https://www.deezer.com/ajax/gw-light.php?method=deezer.getUserData&api_version=1.0&api_token", session.Sid)
+	session.ApiToken = r.Results.ApiToken
+	session.License = r.Results.User.Options.LicenseToken
 }
 
-func GetListData(tracks []string) *ListDataResponse {
-	ping := Ping()
-	userData := UserData()
-	url := fmt.Sprintf("https://www.deezer.com/ajax/gw-light.php?method=song.getListData&api_version=1.0&api_token=%s", userData.Results.ApiToken)
-	return PostRequest[ListDataResponse](url, ping.Results.Session, []byte(fmt.Sprintf(`{"sng_ids":[%s]`, tracks)))
+func GetListData(tracks []string, session *Session) []string {
+	url := fmt.Sprintf("https://www.deezer.com/ajax/gw-light.php?method=song.getListData&api_version=1.0&api_token=%s", session.ApiToken)
+	body := fmt.Sprintf(`{"sng_ids":%s}`, tracks)
+	r := PostRequest[ListDataResponse](url, session.Sid, []byte(body))
+	return funk.Map(r.Results.Data, func(x struct {
+		Token string `json:"TRACK_TOKEN"`
+	}) string {
+		return fmt.Sprintf(`"%s"`, x.Token)
+	}).([]string)
+}
+
+func GetStreamUrl(tracks []string, session Session) string {
+	body := fmt.Sprintf(`{
+		"license_token": "%s",
+		"media": [{
+			"type": "FULL",
+			"formats": [{
+				"cipher": "BF_CBC_STRIPE",
+				"format": "MP3_128"
+				}]
+			}],
+		"track_tokens": %s}`, session.License, tracks)
+	r := PostRequest[UrlResponse]("https://media.deezer.com/v1/get_url", session.Sid, []byte(body))
+	return r.Data[0].Media[0].Sources[0].Url
 }

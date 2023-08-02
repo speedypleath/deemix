@@ -8,5 +8,10 @@ import (
 
 func main() {
 	log.SetOutput(os.Stdout)
-	deezer.GetListData([]string{"355777961"})
+	session := deezer.Session{}
+	deezer.Ping(&session)
+	deezer.UserData(&session)
+	trackTokens := deezer.GetListData([]string{"355777961"}, &session)
+	r := deezer.GetStreamUrl(trackTokens, session)
+	log.Println(r)
 }
