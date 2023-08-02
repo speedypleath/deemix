@@ -59,39 +59,8 @@ type Response interface {
 	PingResponse | UserDataResponse | ListDataResponse | UrlResponse
 }
 
-func GetRequest[T Response](url string, sid string) *T {
-	req, err := http.NewRequest("GET", url, nil)
-	if err != nil {
-		log.Error(err)
-		return nil
-	}
-
-	header := fmt.Sprintf("sid=%s", sid)
-	req.Header.Set("Cookie", header)
-
-	client := &http.Client{}
-	resp, err := client.Do(req)
-	if err != nil {
-		log.Error(err)
-		return nil
-	}
-
-	defer resp.Body.Close()
-	body, err := io.ReadAll(resp.Body)
-	if err != nil {
-		log.Error(err)
-		return nil
-	}
-
-	r := new(T)
-
-	json.Unmarshal(body, r)
-
-	return r
-}
-
-func PostRequest[T Response](url string, sid string, data []byte) *T {
-	req, err := http.NewRequest("POST", url, bytes.NewBuffer(data))
+func httpRequest[T Response](method string, url string, sid string, data []byte) *T {
+	req, err := http.NewRequest(method, url, bytes.NewBuffer(data))
 	if err != nil {
 		log.Error(err)
 		return nil
@@ -125,12 +94,12 @@ func PostRequest[T Response](url string, sid string, data []byte) *T {
 }
 
 func Ping(session *Session) {
-	r := GetRequest[PingResponse]("https://www.deezer.com/ajax/gw-light.php?method=deezer.ping&api_version=1.0&api_token", "")
+	r := httpRequest[PingResponse]("GET", "https://www.deezer.com/ajax/gw-light.php?method=deezer.ping&api_version=1.0&api_token", "", nil)
 	session.Sid = r.Results.Session
 }
 
 func UserData(session *Session) {
-	r := GetRequest[UserDataResponse]("https://www.deezer.com/ajax/gw-light.php?method=deezer.getUserData&api_version=1.0&api_token", session.Sid)
+	r := httpRequest[UserDataResponse]("GET", "https://www.deezer.com/ajax/gw-light.php?method=deezer.getUserData&api_version=1.0&api_token", session.Sid, nil)
 	session.ApiToken = r.Results.ApiToken
 	session.License = r.Results.User.Options.LicenseToken
 }
@@ -138,7 +107,7 @@ func UserData(session *Session) {
 func GetListData(tracks []string, session *Session) []string {
 	url := fmt.Sprintf("https://www.deezer.com/ajax/gw-light.php?method=song.getListData&api_version=1.0&api_token=%s", session.ApiToken)
 	body := fmt.Sprintf(`{"sng_ids":%s}`, tracks)
-	r := PostRequest[ListDataResponse](url, session.Sid, []byte(body))
+	r := httpRequest[ListDataResponse]("POST", url, session.Sid, []byte(body))
 	return funk.Map(r.Results.Data, func(x struct {
 		Token string `json:"TRACK_TOKEN"`
 	}) string {
@@ -157,6 +126,6 @@ func GetStreamUrl(tracks []string, session Session) string {
 				}]
 			}],
 		"track_tokens": %s}`, session.License, tracks)
-	r := PostRequest[UrlResponse]("https://media.deezer.com/v1/get_url", session.Sid, []byte(body))
+	r := httpRequest[UrlResponse]("POST", "https://media.deezer.com/v1/get_url", session.Sid, []byte(body))
 	return r.Data[0].Media[0].Sources[0].Url
 }
